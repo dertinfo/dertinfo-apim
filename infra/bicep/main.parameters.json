@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "ownerInitials": {
+      "value": "di"
+    },
+    "workloadName": {
+      "value": "integration"
+    },
+    "applicationInsightsName": {
+      "value": "my-application-insights"
+    },
+    "applicationInsightsResourceGroupName": {
+      "value": "my-application-insights-resource-group"
+    },
+    "environmentTag": {
+      "value": "dev"
+    },
+    "publisherEmail": {
+      "value": "my@email.com"
+    },
+    "publisherName": {
+      "value": "myOrg"
+    }
+  }
+}

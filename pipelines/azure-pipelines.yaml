@@ -1,0 +1,129 @@
+# Pipeline for deploying changes to the APIM instance
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infra/**
+pr:
+  branches:
+    exclude:
+      - '*'
+
+name: Deploy_APIM_Integration_Infrastructure
+
+variables:
+  - group: APIM_Deployment_VariablesGroup
+  - name: vmImageName
+    value: 'ubuntu-latest'
+  - name: location
+    value: 'uksouth'
+  - name: templateFile
+    value: '**/main.bicep'
+  - name: csmParametersFile
+    value: '**/main.parameters.json'
+
+stages:
+  - stage: Validate
+    jobs:
+      - job: Validate_Deployment
+        pool:
+          vmImage: $(vmImageName)
+        steps:
+          - script: |
+              echo Build.SourceBranch: '$(Build.SourceBranch)'
+              echo The Build.Reason: '$(Build.Reason)'
+              echo The Build.ArtifactStagingDirectory: '$(Build.ArtifactStagingDirectory)'
+              echo The Build.BuildNumber: '$(Build.BuildNumber)'
+              echo SubscriptionReference_Stg:'$(SubscriptionReference_Stg)'
+              echo SubscriptionReference_Prod: '$(SubscriptionReference_Prod)'
+              echo ResourceGroupName_Stg: '$(ResourceGroupName_Stg)'
+              echo ResourceGroupName_Prod: '$(ResourceGroupName_Prod)'
+              echo location: '$(location)'
+              echo templateFile: '$(templateFile)'
+              echo csmParametersFile: '$(csmParametersFile)'
+              echo OwnerInitials: '$(OwnerInitials)'
+              echo WorkloadName: '$(WorkloadName)'
+              echo ApplicationInsightsName_Stg: '$(ApplicationInsightsName_Stg)'
+              echo ApplicationInsightsName_Prod: '$(ApplicationInsightsName_Prod)'
+              echo ApplicationInsightsResourceGroupName_Stg: '$(ApplicationInsightsResourceGroupName_Stg)'
+              echo ApplicationInsightsResourceGroupName_Prod: '$(ApplicationInsightsResourceGroupName_Prod)'
+              echo EnvironmentTag_Stg: '$(EnvironmentTag_Stg)'
+              echo EnvironmentTag_Prod: '$(EnvironmentTag_Prod)'
+              echo PublisherEmail: '$(PublisherEmail)'
+              echo PublisherName: '$(PublisherName)'
+            displayName: 'Output build variables'
+          - script: |
+              echo "Listing files in the artifact directory"
+              ls -R $(System.DefaultWorkingDirectory)
+
+  - stage: PublishInfraAsArtefact
+    displayName: 'Publish Infra Artefact'
+    jobs:
+    - job: Publish_Infra_Artefact
+      pool:
+        vmImage: $(vmImageName)
+      steps:
+      - task: PublishBuildArtifacts@1
+        inputs:
+          PathToPublish: '$(System.DefaultWorkingDirectory)/infra'
+          ArtifactName: 'infra'
+          publishLocation: 'Container'
+
+  - stage: Test
+    displayName: Deploy to Test
+    jobs:
+      - deployment: Deploy_To_Test
+        pool:
+          vmImage: $(vmImageName)
+        environment: Test
+        strategy:
+          runOnce:
+            deploy:
+             steps:
+             - download: current
+               artifact: infra
+             - task: AzureResourceManagerTemplateDeployment@3
+               inputs:
+                  azureResourceManagerConnection: '$(SubscriptionReference_Stg)'
+                  deploymentScope: 'Resource Group'
+                  action: 'Create Or Update Resource Group'
+                  resourceGroupName: '$(ResourceGroupName_Stg)'
+                  location: '$(location)'
+                  templateLocation: 'Linked artifact'
+                  csmFile: '$(Pipeline.Workspace)/infra/**/$(templateFile)'
+                  csmParametersFile: '$(Pipeline.Workspace)/infra/**/$(csmParametersFile)'
+                  deploymentMode: 'Incremental'
+                  deploymentName: 'Deploy-Integration-APIM' 
+                  overrideParameters: -ownerInitials "$(OwnerInitials)" -workloadName "$(WorkloadName)" -applicationInsightsName "$(ApplicationInsightsName_Stg)" -applicationInsightsResourceGroupName "$(ApplicationInsightsResourceGroupName_Stg)" -environmentTag "$(EnvironmentTag_Stg)" -publisherEmail "$(PublisherEmail)" -publisherName "$(PublisherName)"
+
+  - stage: Live
+    displayName: Deploy to Live
+    dependsOn: Test
+    jobs:
+      - deployment: Deploy_To_Live
+        pool:
+          vmImage: $(vmImageName)
+        environment: Live
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+              - download: current
+                artifact: infra
+              - task: AzureResourceManagerTemplateDeployment@3
+                inputs:
+                  azureResourceManagerConnection: $(SubscriptionReference_Prod)
+                  deploymentScope: 'Resource Group'
+                  action: 'Create Or Update Resource Group'
+                  resourceGroupName: '$(ResourceGroupName_Prod)'
+                  location: '$(location)'
+                  templateLocation: 'Linked artifact'
+                  csmFile: '$(Pipeline.Workspace)/infra/**/$(templateFile)'
+                  csmParametersFile: '$(Pipeline.Workspace)/infra/**/$(csmParametersFile)'
+                  deploymentMode: 'Incremental'
+                  deploymentName: 'Deploy-Integration-APIM' 
+                  overrideParameters: -ownerInitials "$(OwnerInitials)" -workloadName "$(WorkloadName)" -applicationInsightsName "$(ApplicationInsightsName_Prod)" -applicationInsightsResourceGroupName "$(ApplicationInsightsResourceGroupName_Prod)" -environmentTag "$(EnvironmentTag_Prod)" -publisherEmail "$(PublisherEmail)" -publisherName "$(PublisherName)"
+
